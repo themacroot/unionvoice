@@ -4,6 +4,16 @@ import { createClient } from '@supabase/supabase-js';
 import { ArrowDown, ArrowUpRight, BadgeCheck, Building2, Check, ChevronDown, CircleHelp, ExternalLink, EyeOff, Filter, KeyRound, LoaderCircle, LogIn, Mail, MessageCircle, Network, Plus, Search, Send, ShieldCheck, Trash2, Users, X } from 'lucide-react';
 import './style.css';
 
+const cloudflareAnalyticsToken = import.meta.env.VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN;
+if (import.meta.env.PROD && cloudflareAnalyticsToken) {
+  const analyticsScript = document.createElement('script');
+  analyticsScript.src = 'https://static.cloudflareinsights.com/beacon.min.js';
+  analyticsScript.type = 'module';
+  analyticsScript.defer = true;
+  analyticsScript.setAttribute('data-cf-beacon', JSON.stringify({ token: cloudflareAnalyticsToken }));
+  document.head.append(analyticsScript);
+}
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;

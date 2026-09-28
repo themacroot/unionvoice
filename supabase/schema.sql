@@ -89,11 +89,42 @@ create table if not exists public.association_site_findings (
   unique (association_id, source_url)
 );
 
+create table if not exists public.achievements (
+  id uuid primary key default gen_random_uuid(),
+  association_id uuid not null references public.associations (id),
+  author_id uuid references auth.users (id) on delete set null,
+  author_name text,
+  title text not null check (char_length(title) between 5 and 160),
+  body text not null check (char_length(body) between 10 and 10000),
+  achieved_on date,
+  status text not null default 'published' check (status in ('published', 'hidden')),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.comments (
+  id uuid primary key default gen_random_uuid(),
+  question_id uuid references public.questions (id) on delete cascade,
+  achievement_id uuid references public.achievements (id) on delete cascade,
+  user_id uuid references auth.users (id) on delete set null,
+  author_name text,
+  body text not null check (char_length(body) between 2 and 4000),
+  is_anonymous boolean not null default false,
+  created_at timestamptz not null default now(),
+  constraint comments_single_target check (
+    (question_id is not null and achievement_id is null)
+    or (question_id is null and achievement_id is not null)
+  )
+);
+
 create index if not exists questions_feed_idx on public.questions (created_at desc) where status = 'published';
 create index if not exists questions_association_idx on public.questions (association_id, created_at desc);
 create index if not exists answers_question_idx on public.answers (question_id, created_at);
 create index if not exists association_site_findings_status_idx on public.association_site_findings (association_id, review_status, fetched_at desc);
 create index if not exists association_requests_status_idx on public.association_requests (status, created_at);
+create index if not exists achievements_feed_idx on public.achievements (created_at desc) where status = 'published';
+create index if not exists achievements_association_idx on public.achievements (association_id, created_at desc);
+create index if not exists comments_question_idx on public.comments (question_id, created_at);
+create index if not exists comments_achievement_idx on public.comments (achievement_id, created_at);
 
 create or replace function public.is_admin()
 returns boolean
@@ -144,6 +175,8 @@ alter table public.association_members enable row level security;
 alter table public.questions enable row level security;
 alter table public.answers enable row level security;
 alter table public.association_site_findings enable row level security;
+alter table public.achievements enable row level security;
+alter table public.comments enable row level security;
 
 create policy "Profiles are visible to signed-in users" on public.profiles
 for select to authenticated using (true);
@@ -195,6 +228,35 @@ for select using (review_status = 'approved' or public.is_admin());
 create policy "Admins review website findings" on public.association_site_findings
 for update to authenticated using (public.is_admin()) with check (public.is_admin());
 
+create policy "Published achievements are public" on public.achievements
+for select using (status = 'published' or public.is_admin());
+create policy "Signed-in users post achievements" on public.achievements
+for insert to authenticated with check (
+  author_id = (select auth.uid())
+  and exists (select 1 from public.associations a where a.id = association_id and a.status = 'approved')
+);
+create policy "Admins moderate achievements" on public.achievements
+for update to authenticated using (public.is_admin()) with check (public.is_admin());
+create policy "Admins delete achievements" on public.achievements
+for delete to authenticated using (public.is_admin());
+
+create policy "Comments on visible content are public" on public.comments
+for select using (
+  (question_id is not null and exists (select 1 from public.questions q where q.id = question_id and q.status = 'published'))
+  or (achievement_id is not null and exists (select 1 from public.achievements a where a.id = achievement_id and a.status = 'published'))
+  or public.is_admin()
+);
+create policy "Comments require a published target" on public.comments
+for insert with check (
+  (user_id is null or user_id = (select auth.uid()))
+  and (
+    (question_id is not null and exists (select 1 from public.questions q where q.id = question_id and q.status = 'published'))
+    or (achievement_id is not null and exists (select 1 from public.achievements a where a.id = achievement_id and a.status = 'published'))
+  )
+);
+create policy "Admins delete comments" on public.comments
+for delete to authenticated using (public.is_admin());
+
 insert into public.associations (name, acronym, description, association_type, status)
 values ('All India Bank Officers Confederation', 'AIBOC', 'Apex body for affiliated bank officers associations', 'apex', 'approved')
 on conflict (acronym) do nothing;
@@ -204,18 +266,15 @@ select 'SIB''s Officers Association', 'SIBOA', 'South Indian Bank Officers Assoc
 from public.associations where acronym = 'AIBOC'
 on conflict (acronym) do update set parent_id = coalesce(public.associations.parent_id, excluded.parent_id);
 
-update public.associations
-set homepage_url = 'https://aiboc.org/', source_url = 'https://aiboc.org/'
-where acronym = 'AIBOC';
-
-update public.associations
-set source_url = 'https://aiboc.org/aiboc-affiliates/'
-where acronym = 'SIBOA';
-
 insert into public.associations (name, acronym, description, association_type, homepage_url, source_url, status)
 values
-  ('All India Bank Employees'' Association', 'AIBEA', 'National bank employees'' union representing workmen, including clerical and subordinate staff.', 'apex', 'https://aibea.in/', 'https://aibea.in/', 'approved'),
-  ('Bank Employees Federation of India', 'BEFI', 'National federation representing bank employees through its affiliated unions.', 'apex', 'https://www.befi.in/index.php', 'https://www.befi.in/index.php', 'approved')
+  ('United Forum of Bank Unions', 'UFBU', 'Joint forum of seven bank employee and officer unions, as notified to IBA effective 6 August 2026.', 'other', null, 'https://aiboc.org/wp-content/uploads/2026/08/47_2026_UFBU_Letter_to_IBA_Constituents.pdf', 'approved'),
+  ('All India Bank Employees'' Association', 'AIBEA', 'National bank employees'' union representing workmen, including clerical and subordinate staff.', 'apex', 'https://aibea.in/', 'https://aiboc.org/wp-content/uploads/2026/08/47_2026_UFBU_Letter_to_IBA_Constituents.pdf', 'approved'),
+  ('Bank Employees Federation of India', 'BEFI', 'National federation representing bank employees through its affiliated unions.', 'apex', 'https://befi.in/', 'https://aiboc.org/wp-content/uploads/2026/08/47_2026_UFBU_Letter_to_IBA_Constituents.pdf', 'approved'),
+  ('National Confederation of Bank Employees', 'NCBE', 'National bank employees'' organization.', 'apex', 'https://www.sbisuac.in/ncbe', 'https://aiboc.org/wp-content/uploads/2026/08/47_2026_UFBU_Letter_to_IBA_Constituents.pdf', 'approved'),
+  ('All India Bank Officers'' Association', 'AIBOA', 'National bank officers'' association.', 'apex', 'http://aiboa.org/', 'https://aiboc.org/wp-content/uploads/2026/08/47_2026_UFBU_Letter_to_IBA_Constituents.pdf', 'approved'),
+  ('Indian National Bank Employees Federation', 'INBEF', 'National bank employees'' federation.', 'apex', null, 'https://www.inboc.org/post/inbef-activities-nec-meeting-of-indian-national-bank-employees-federation-inbef-held-on-5th-6th', 'approved'),
+  ('Indian National Bank Officers'' Congress', 'INBOC', 'National bank officers'' organization and banking wing of INTUC.', 'apex', 'https://www.inboc.org/', 'https://aiboc.org/wp-content/uploads/2026/08/47_2026_UFBU_Letter_to_IBA_Constituents.pdf', 'approved')
 on conflict (acronym) do update set
   name = excluded.name,
   description = excluded.description,
@@ -223,6 +282,18 @@ on conflict (acronym) do update set
   homepage_url = excluded.homepage_url,
   source_url = excluded.source_url,
   status = excluded.status;
+
+update public.associations
+set homepage_url = 'https://aiboc.org/', source_url = 'https://aiboc.org/wp-content/uploads/2026/08/47_2026_UFBU_Letter_to_IBA_Constituents.pdf'
+where acronym = 'AIBOC';
+
+update public.associations
+set parent_id = (select id from public.associations where acronym = 'UFBU')
+where acronym in ('AIBOC', 'AIBEA', 'NCBE', 'AIBOA', 'BEFI', 'INBEF', 'INBOC');
+
+update public.associations
+set source_url = 'https://aiboc.org/aiboc-affiliates/'
+where acronym in ('CBOA', 'FBBOA', 'IOBOA', 'AIIBOA', 'AIUBOF', 'AIUCOBOF', 'AIPNBOA', 'AICBOF', 'FBOIOA', 'AISBOF', 'ASCBOK', 'CSBOA', 'SIBOA', 'FBOA', 'KVBOA', 'DBOO', 'LVBOA', 'AIRRBOF');
 
 with aiboc as (select id from public.associations where acronym = 'AIBOC'),
 affiliates(name, acronym, description) as (values

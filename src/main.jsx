@@ -10,9 +10,12 @@ const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabase
 const demoApex = { id: 'demo-aiboc', name: 'All India Bank Officers Confederation', acronym: 'AIBOC', description: 'Apex body for affiliated bank officers associations', association_type: 'apex', parent_id: null, homepage_url: null, status: 'approved' };
 const demoAssociation = { id: 'demo-siboa', name: "SIB's Officers Association", acronym: 'SIBOA', description: 'South Indian Bank Officers Association', association_type: 'bank', parent_id: demoApex.id, homepage_url: null, status: 'approved' };
 const demoQuestions = [
-  { id: 'demo-1', title: 'Clarification on the revised transfer policy', body: 'Could the association clarify how the new transfer guidelines apply to officers who have completed a tenure in a rural branch?', department: 'Operations', cluster: 'Chennai', region: 'South', is_anonymous: false, created_at: '2026-09-25T10:10:00Z', associations: demoAssociation, answers: [{ id: 'a1', body: 'We have raised this with HR and requested the circular in writing. We will share an update as soon as we receive it.', created_at: '2026-09-26T08:30:00Z' }] },
-  { id: 'demo-2', title: 'Medical reimbursement claim timeline', body: 'Has there been any update on the expected processing time for pending medical reimbursement claims?', department: 'Credit', cluster: 'Coimbatore', region: 'South', is_anonymous: true, created_at: '2026-09-24T13:00:00Z', associations: demoAssociation, answers: [] },
-  { id: 'demo-3', title: 'Request for guidance on the new performance review format', body: 'The new format has a few sections that are not clear to our team. Can someone explain the process for seeking a review?', department: 'Retail Banking', cluster: 'Kochi', region: 'South', is_anonymous: false, created_at: '2026-09-22T07:45:00Z', associations: demoAssociation, answers: [] },
+  { id: 'demo-1', title: 'Clarification on the revised transfer policy', body: 'Could the association clarify how the new transfer guidelines apply to officers who have completed a tenure in a rural branch?', department: 'Operations', cluster: 'Chennai', region: 'South', is_anonymous: false, created_at: '2026-09-25T10:10:00Z', associations: demoAssociation, answers: [{ id: 'a1', body: 'We have raised this with HR and requested the circular in writing. We will share an update as soon as we receive it.', created_at: '2026-09-26T08:30:00Z' }], comments: [] },
+  { id: 'demo-2', title: 'Medical reimbursement claim timeline', body: 'Has there been any update on the expected processing time for pending medical reimbursement claims?', department: 'Credit', cluster: 'Coimbatore', region: 'South', is_anonymous: true, created_at: '2026-09-24T13:00:00Z', associations: demoAssociation, answers: [], comments: [] },
+  { id: 'demo-3', title: 'Request for guidance on the new performance review format', body: 'The new format has a few sections that are not clear to our team. Can someone explain the process for seeking a review?', department: 'Retail Banking', cluster: 'Kochi', region: 'South', is_anonymous: false, created_at: '2026-09-22T07:45:00Z', associations: demoAssociation, answers: [], comments: [] },
+];
+const demoAchievements = [
+  { id: 'demo-a1', title: 'Secured revised transfer guidelines for rural postings', body: 'Following sustained representation, the association secured written clarification protecting officers who complete a rural tenure from repeat postings.', achieved_on: '2026-09-10', author_name: 'SIBOA representative', created_at: '2026-09-15T09:00:00Z', associations: demoAssociation, comments: [] },
 ];
 
 function timeAgo(value) {
@@ -82,7 +85,7 @@ function AssociationDirectoryCard({ association, associations, findings, admin, 
   const homepageUrl = safeHomepageUrl(association.homepage_url);
   const sourceUrl = safeHomepageUrl(association.source_url);
   return <article className="directory-card" key={association.id}>
-    <div className="directory-card-top"><span className="association-badge"><Building2 size={17} /></span><span className="level-label">{association.association_type === 'apex' ? 'NATIONAL BODY' : association.association_type === 'bank' ? 'BANK ASSOCIATION' : 'ASSOCIATION'}</span></div>
+    <div className="directory-card-top"><span className="association-badge"><Building2 size={17} /></span><span className="level-label">{association.association_type === 'apex' || association.acronym === 'UFBU' ? 'NATIONAL BODY' : association.association_type === 'bank' ? 'BANK ASSOCIATION' : 'ASSOCIATION'}</span></div>
     <h2>{association.name}</h2><p className="directory-acronym">{association.acronym}</p><p className="directory-description">{association.description || 'Association information has not been added yet.'}</p>
     <div className="directory-parent">{association.parent_id ? `Reports to ${parent?.acronym || 'parent association'}` : 'Top-level organization'}</div>
     {homepageUrl ? <a className="text-action directory-link" href={homepageUrl} target="_blank" rel="noreferrer">Visit homepage <ExternalLink size={14} /></a> : <span className="no-homepage">Homepage not provided</span>}
@@ -109,16 +112,41 @@ function AssociationSiteFindings({ association, findings, admin, isRefreshing, r
   </section>;
 }
 
+function CommentThread({ comments, onSubmit, busy }) {
+  const list = comments || [];
+  return <div className="comment-thread">
+    <div className="comment-list">
+      {list.length === 0 && <p className="comment-empty">No comments yet.</p>}
+      {list.map((comment) => <div className="comment-item" key={comment.id}>
+        <div className="comment-meta"><strong>{comment.is_anonymous ? 'Anonymous' : (comment.author_name || 'Colleague')}</strong><span>{timeAgo(comment.created_at)}</span></div>
+        <p>{comment.body}</p>
+      </div>)}
+    </div>
+    <form className="comment-form" onSubmit={onSubmit}>
+      <textarea name="comment" required minLength="2" maxLength="4000" rows="2" placeholder="Add a comment..." />
+      <div className="comment-form-footer">
+        <label className="comment-anonymous"><input type="checkbox" name="anonymous" /> Post anonymously</label>
+        <button className="text-action" type="submit" disabled={busy}><Send size={13} /> {busy ? 'Posting...' : 'Comment'}</button>
+      </div>
+    </form>
+  </div>;
+}
+
 function App() {
   const [associations, setAssociations] = useState([demoApex, demoAssociation]);
   const [questions, setQuestions] = useState(demoQuestions);
+  const [achievements, setAchievements] = useState(demoAchievements);
   const [requests, setRequests] = useState([]);
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [memberIds, setMemberIds] = useState([]);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('All questions');
+  const [associationFilter, setAssociationFilter] = useState('All associations');
   const [showQuestionForm, setShowQuestionForm] = useState(false);
+  const [showAchievementForm, setShowAchievementForm] = useState(false);
+  const [isSubmittingAchievement, setIsSubmittingAchievement] = useState(false);
+  const [commentBusyKey, setCommentBusyKey] = useState(null);
   const [questionTitleDraft, setQuestionTitleDraft] = useState('');
   const [questionAssociationDraft, setQuestionAssociationDraft] = useState('');
   const [isSubmittingQuestion, setIsSubmittingQuestion] = useState(false);
@@ -145,10 +173,11 @@ function App() {
       setLoading(false);
       return;
     }
-    const [associationResult, questionResult, findingsResult] = await Promise.all([
+    const [associationResult, questionResult, findingsResult, achievementResult] = await Promise.all([
       supabase.from('associations').select('*').eq('status', 'approved').order('name'),
-      supabase.from('questions').select('*, associations(name, acronym), answers(id, body, created_at)').eq('status', 'published').order('created_at', { ascending: false }),
+      supabase.from('questions').select('*, associations(name, acronym), answers(id, body, created_at), comments(id, body, created_at, author_name, is_anonymous)').eq('status', 'published').order('created_at', { ascending: false }),
       supabase.from('association_site_findings').select('*').order('fetched_at', { ascending: false }),
+      supabase.from('achievements').select('*, associations(name, acronym), comments(id, body, created_at, author_name, is_anonymous)').eq('status', 'published').order('created_at', { ascending: false }),
     ]);
     if (associationResult.error) setNotice(associationResult.error.message);
     else setAssociations(associationResult.data || []);
@@ -156,6 +185,8 @@ function App() {
     else setQuestions(questionResult.data || []);
     if (findingsResult.error) setNotice(findingsResult.error.message);
     else setSiteFindings(findingsResult.data || []);
+    if (achievementResult.error) setNotice(achievementResult.error.message);
+    else setAchievements(achievementResult.data || []);
     if (session?.user) {
       const { data: requestsData } = await supabase.from('association_requests').select('*').eq('status', 'pending').order('created_at');
       setRequests(requestsData || []);
@@ -207,9 +238,10 @@ function App() {
     return questions.filter((question) => {
       const matchesSearch = !query || [question.title, question.body, question.department, question.cluster, question.region, question.associations?.acronym].some((item) => item?.toLowerCase().includes(query));
       const matchesFilter = filter === 'All questions' || (filter === 'Unanswered' && !(question.answers || []).length) || (filter === 'Answered' && (question.answers || []).length > 0);
-      return matchesSearch && matchesFilter;
+      const matchesAssociation = associationFilter === 'All associations' || question.association_id === associationFilter;
+      return matchesSearch && matchesFilter && matchesAssociation;
     });
-  }, [questions, search, filter]);
+  }, [questions, search, filter, associationFilter]);
   const possibleDuplicates = useMemo(
     () => findPossibleDuplicates(questionTitleDraft, questionAssociationDraft, questions),
     [questionTitleDraft, questionAssociationDraft, questions],
@@ -401,6 +433,76 @@ function App() {
     setNotice('Request sent to the portal administrator for review.');
   }
 
+  async function submitAchievement(event) {
+    event.preventDefault();
+    if (isSubmittingAchievement) return;
+    if (!session?.user) { setNotice('Sign in to post a Hall of Fame update.'); return; }
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const associationId = data.get('association_id');
+    const title = data.get('title').trim();
+    const body = data.get('body').trim();
+    const achievedOn = data.get('achieved_on') || null;
+    setIsSubmittingAchievement(true);
+    try {
+      const authorName = profile?.full_name || session.user.email;
+      if (!supabase) {
+        const demoAchievement = { id: crypto.randomUUID(), association_id: associationId, title, body, achieved_on: achievedOn, author_name: authorName, created_at: new Date().toISOString(), associations: associations.find((entry) => entry.id === associationId) || demoAssociation, comments: [] };
+        setAchievements((current) => [demoAchievement, ...current]);
+        setNotice('Your Hall of Fame post is shown in this preview only. Configure Supabase to publish it for everyone.');
+      } else {
+        const { error } = await supabase.from('achievements').insert({ association_id: associationId, title, body, achieved_on: achievedOn, author_id: session.user.id, author_name: authorName });
+        if (error) throw error;
+        setNotice('Hall of Fame post published.');
+        await refresh();
+      }
+      form.reset();
+      setShowAchievementForm(false);
+    } catch (error) {
+      setNotice(error.message || 'Could not post to the Hall of Fame. Please try again.');
+    } finally {
+      setIsSubmittingAchievement(false);
+    }
+  }
+
+  async function submitComment(event, { questionId, achievementId }) {
+    event.preventDefault();
+    if (commentBusyKey) return;
+    const key = questionId ? `q-${questionId}` : `a-${achievementId}`;
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const body = (data.get('comment') || '').trim();
+    if (!body) return;
+    const anonymous = data.get('anonymous') === 'on';
+    const authorName = !anonymous ? (profile?.full_name || session?.user?.email || null) : null;
+    setCommentBusyKey(key);
+    try {
+      if (!supabase) {
+        const comment = { id: crypto.randomUUID(), body, is_anonymous: anonymous, author_name: authorName, created_at: new Date().toISOString() };
+        if (questionId) setQuestions((current) => current.map((item) => item.id === questionId ? { ...item, comments: [...(item.comments || []), comment] } : item));
+        else setAchievements((current) => current.map((item) => item.id === achievementId ? { ...item, comments: [...(item.comments || []), comment] } : item));
+        setNotice('Your comment is shown in this preview only. Configure Supabase to publish it for everyone.');
+      } else {
+        const { error } = await supabase.from('comments').insert({
+          question_id: questionId || null,
+          achievement_id: achievementId || null,
+          user_id: anonymous ? null : session?.user?.id || null,
+          author_name: authorName,
+          body,
+          is_anonymous: anonymous,
+        });
+        if (error) throw error;
+        setNotice('Comment posted.');
+        await refresh();
+      }
+      form.reset();
+    } catch (error) {
+      setNotice(error.message || 'Could not post your comment. Please try again.');
+    } finally {
+      setCommentBusyKey(null);
+    }
+  }
+
   async function submitAnswer(event, question) {
     event.preventDefault();
     if (!session?.user) { setNotice('Sign in to answer as a representative.'); return; }
@@ -489,6 +591,7 @@ function App() {
           <nav className="primary-nav" aria-label="Main navigation">
             <button className={activeView === 'questions' ? 'active' : ''} onClick={() => setActiveView('questions')}>Questions</button>
             <button className={activeView === 'associations' ? 'active' : ''} onClick={() => setActiveView('associations')}>Associations</button>
+            <button className={activeView === 'achievements' ? 'active' : ''} onClick={() => setActiveView('achievements')}>Hall of Fame</button>
             <button className={activeView === 'hierarchy' ? 'active' : ''} onClick={() => setActiveView('hierarchy')}><Network size={14} /> Structure</button>
           </nav>
           <span className={`connection ${supabase ? 'is-live' : ''}`}><i />{modeLabel}</span>
@@ -539,6 +642,7 @@ function App() {
             <div className="feed-tools">
               <label className="search-box"><Search size={17} /><input aria-label="Search questions" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search questions, teams, places..." />{search && <button aria-label="Clear search" onClick={() => setSearch('')}><X size={14} /></button>}</label>
               <div className="filter-select"><Filter size={15} /><select aria-label="Filter questions" value={filter} onChange={(event) => setFilter(event.target.value)}><option>All questions</option><option>Unanswered</option><option>Answered</option></select><ChevronDown size={14} /></div>
+              <div className="filter-select"><Building2 size={15} /><select aria-label="Filter by association" value={associationFilter} onChange={(event) => setAssociationFilter(event.target.value)}><option>All associations</option>{associations.map((association) => <option key={association.id} value={association.id}>{association.acronym}</option>)}</select><ChevronDown size={14} /></div>
             </div>
             <div className="question-list">
               {loading ? <div className="empty-state"><span className="loader" /><p>Loading the conversation...</p></div> : visibleQuestions.length ? visibleQuestions.map((question) => {
@@ -549,6 +653,7 @@ function App() {
                   <div className="question-tags">{[question.department, question.cluster, question.region].filter(Boolean).map((tag, index) => <span key={`${tag}-${index}`} className={`tag tag-${index}`}>{tag}</span>)}</div>
                   {(question.answers || []).map((answer) => <div className="answer-block" key={answer.id}><div className="answer-heading"><span className="answer-check"><Check size={12} /></span><strong>Representative reply</strong><span>{timeAgo(answer.created_at)}</span></div><p>{answer.body}</p></div>)}
                   {isRepresentative && supabase && <details className="reply-details"><summary><MessageCircle size={14} /> Reply as representative</summary><form onSubmit={(event) => submitAnswer(event, question)}><textarea name="answer" required rows="3" placeholder="Write a clear, helpful response..." /><button className="button button-dark" type="submit"><Send size={14} /> Publish reply</button></form></details>}
+                  <CommentThread comments={question.comments} onSubmit={(event) => submitComment(event, { questionId: question.id })} busy={commentBusyKey === `q-${question.id}`} />
                   <div className="question-bottom"><span><MessageCircle size={14} /> {(question.answers || []).length} {(question.answers || []).length === 1 ? 'reply' : 'replies'}</span><div className="question-actions">{admin && <button className="text-action delete-question" onClick={() => deleteQuestion(question)} disabled={Boolean(deletingQuestionId)}><Trash2 size={14} /> {deletingQuestionId === question.id ? 'Deleting...' : 'Delete question'}</button>}<button className="text-action" onClick={() => setNotice(session?.user ? 'Replies are added by representatives assigned to this association.' : 'Sign in with your work account to participate as a representative.')}><ArrowUpRight size={14} /> Follow conversation</button></div></div>
                 </article>;
               }) : <div className="empty-state"><CircleHelp size={26} /><h3>No questions found</h3><p>Try a different search, or be the first to ask.</p><button className="text-action" onClick={() => setShowQuestionForm(true)}><Plus size={15} /> Ask a question</button></div>}
@@ -568,10 +673,32 @@ function App() {
             <div className="privacy-card"><ShieldCheck size={19} /><div><strong>Built around trust</strong><p>Never share customer data, account numbers, or confidential bank information.</p></div></div>
           </aside>
         </section> : activeView === 'associations' ? <section className="directory-page">
-          <div className="page-heading"><div><span className="section-kicker">THE NETWORK</span><h1>Associations</h1><p>Browse national bank unions and officers’ associations.</p><p className="directory-scope">Initial sourced coverage: AIBOC’s published affiliate roster, plus AIBEA and BEFI. This is not an exhaustive register of every bank, union, or independent association.</p></div><button className="button button-dark" onClick={() => setShowAssociationForm((value) => !value)}><Plus size={16} /> {admin ? 'Add association' : 'Request association'}</button></div>
+          <div className="page-heading"><div><span className="section-kicker">THE NETWORK</span><h1>Associations</h1><p>Browse national bank unions and officers’ associations.</p><p className="directory-scope">Sourced coverage: the seven UFBU constituents notified on 6 August 2026 and AIBOC’s published bank-wise affiliate roster. This is not a complete register of every regional or independent union.</p></div><button className="button button-dark" onClick={() => setShowAssociationForm((value) => !value)}><Plus size={16} /> {admin ? 'Add association' : 'Request association'}</button></div>
           {showAssociationForm && <div className="directory-form-wrap"><div className="form-heading"><div><span className="section-kicker">{admin ? 'DIRECTORY ADMIN' : 'PROPOSE A BODY'}</span><h2>{admin ? 'Add an association' : 'Request an association'}</h2></div><button type="button" className="icon-button" aria-label="Close association form" onClick={() => setShowAssociationForm(false)}><X size={18} /></button></div><AssociationRequestForm associations={associations} admin={admin} onSubmit={submitAssociationRequest} /></div>}
           <div className="directory-grid">{associations.map((association) => <AssociationDirectoryCard key={association.id} association={association} associations={associations} findings={siteFindings} admin={admin} editingHomepage={editingHomepageId === association.id} homepageDraft={homepageDraft} onHomepageDraftChange={setHomepageDraft} onEditHomepage={editAssociationHomepage} onSaveHomepage={saveAssociationHomepage} isRefreshing={refreshingAssociationId === association.id} reviewingFindingId={reviewingFindingId} onRefresh={fetchAssociationWebsite} onReview={reviewAssociationFinding} />)}</div>
           {admin && <section className="side-section admin-section directory-review"><div className="side-title"><span className="section-kicker">ADMIN REVIEW</span><span className="pending-count">{requests.length}</span></div><p className="side-description">Association requests awaiting approval.</p>{requests.length ? requests.map((request) => <div className="request-card" key={request.id}><strong>{request.acronym} · {request.name}</strong><p>{request.description || 'No description provided.'}</p><p>{request.parent_id ? `Parent: ${associations.find((item) => item.id === request.parent_id)?.acronym || 'selected association'}` : 'Top-level organization'}</p><button className="text-action" onClick={() => approveRequest(request)}><Check size={14} /> Approve association</button></div>) : <p className="no-requests">No requests waiting.</p>}</section>}
+        </section> : activeView === 'achievements' ? <section className="directory-page hall-of-fame-page">
+          <div className="page-heading"><div><span className="section-kicker">RECOGNIZED WINS</span><h1>Hall of Fame</h1><p>Achievements shared by representatives and employees across associations.</p></div><button className="button button-dark" onClick={() => setShowAchievementForm((value) => !value)}><Plus size={16} /> Share an achievement</button></div>
+          {showAchievementForm && <div className="directory-form-wrap"><div className="form-heading"><div><span className="section-kicker">SHARE A WIN</span><h2>Post a Hall of Fame update</h2></div><button type="button" className="icon-button" aria-label="Close achievement form" onClick={() => setShowAchievementForm(false)}><X size={18} /></button></div>
+            <form className="association-form directory-form" onSubmit={submitAchievement}>
+              <label className="field-label">Association<select name="association_id" required defaultValue=""><option value="" disabled>Select an association</option>{associations.map((association) => <option key={association.id} value={association.id}>{association.acronym} · {association.name}</option>)}</select></label>
+              <label className="field-label">Title<input name="title" required minLength="5" maxLength="160" placeholder="What did the association achieve?" /></label>
+              <label className="field-label">Date achieved<input name="achieved_on" type="date" /></label>
+              <label className="field-label">Details<textarea name="body" required minLength="10" rows="4" placeholder="Describe the win and how it helps employees..." /></label>
+              {!session?.user && <p className="auth-message" role="status">Sign in to post a Hall of Fame update.</p>}
+              <button className="button button-dark" type="submit" disabled={isSubmittingAchievement}>{isSubmittingAchievement ? 'Posting...' : 'Publish achievement'} <ArrowUpRight size={15} /></button>
+            </form>
+          </div>}
+          <div className="achievement-list">
+            {achievements.length ? achievements.map((achievement) => <article className="achievement-card" key={achievement.id}>
+              <div className="question-meta"><span className="association-label"><span className="association-symbol">{(achievement.associations?.acronym || 'U').slice(0, 1)}</span>{achievement.associations?.acronym || 'Association'}</span><span className="meta-separator">·</span><span>{timeAgo(achievement.created_at)}</span></div>
+              <h3>{achievement.title}</h3>
+              <p className="question-body">{achievement.body}</p>
+              {achievement.achieved_on && <p className="achievement-date">Achieved {new Date(achievement.achieved_on).toLocaleDateString()}</p>}
+              <p className="achievement-author">Posted by {achievement.author_name || 'a member'}</p>
+              <CommentThread comments={achievement.comments} onSubmit={(event) => submitComment(event, { achievementId: achievement.id })} busy={commentBusyKey === `a-${achievement.id}`} />
+            </article>) : <div className="empty-state"><CircleHelp size={26} /><h3>No achievements posted yet</h3><p>Be the first to celebrate a win.</p></div>}
+          </div>
         </section> : <section className="directory-page hierarchy-page">
           <div className="page-heading"><div><span className="section-kicker">HOW WE CONNECT</span><h1>Association structure</h1><p>Explore national bodies and the bank associations connected to them.</p></div><Network size={27} /></div>
           <div className="hierarchy-panel"><div className="hierarchy-caption"><Network size={16} /><span>ORGANIZATIONAL HIERARCHY</span></div><ul className="association-tree">{roots.map((association) => <AssociationTreeNode key={association.id} association={association} childrenByParent={childrenByParent} />)}</ul></div>

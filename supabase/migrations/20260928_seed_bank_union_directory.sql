@@ -1,18 +1,15 @@
 alter table public.associations add column if not exists source_url text
   check (source_url is null or source_url ~* '^https?://');
 
-update public.associations
-set homepage_url = 'https://aiboc.org/', source_url = 'https://aiboc.org/'
-where acronym = 'AIBOC';
-
-update public.associations
-set source_url = 'https://aiboc.org/aiboc-affiliates/'
-where acronym = 'SIBOA';
-
 insert into public.associations (name, acronym, description, association_type, homepage_url, source_url, status)
 values
-  ('All India Bank Employees'' Association', 'AIBEA', 'National bank employees'' union representing workmen, including clerical and subordinate staff.', 'apex', 'https://aibea.in/', 'https://aibea.in/', 'approved'),
-  ('Bank Employees Federation of India', 'BEFI', 'National federation representing bank employees through its affiliated unions.', 'apex', 'https://www.befi.in/index.php', 'https://www.befi.in/index.php', 'approved')
+  ('United Forum of Bank Unions', 'UFBU', 'Joint forum of seven bank employee and officer unions, as notified to IBA effective 6 August 2026.', 'other', null, 'https://aiboc.org/wp-content/uploads/2026/08/47_2026_UFBU_Letter_to_IBA_Constituents.pdf', 'approved'),
+  ('All India Bank Employees'' Association', 'AIBEA', 'National bank employees'' union representing workmen, including clerical and subordinate staff.', 'apex', 'https://aibea.in/', 'https://aiboc.org/wp-content/uploads/2026/08/47_2026_UFBU_Letter_to_IBA_Constituents.pdf', 'approved'),
+  ('Bank Employees Federation of India', 'BEFI', 'National federation representing bank employees through its affiliated unions.', 'apex', 'https://befi.in/', 'https://aiboc.org/wp-content/uploads/2026/08/47_2026_UFBU_Letter_to_IBA_Constituents.pdf', 'approved'),
+  ('National Confederation of Bank Employees', 'NCBE', 'National bank employees'' organization.', 'apex', 'https://www.sbisuac.in/ncbe', 'https://aiboc.org/wp-content/uploads/2026/08/47_2026_UFBU_Letter_to_IBA_Constituents.pdf', 'approved'),
+  ('All India Bank Officers'' Association', 'AIBOA', 'National bank officers'' association.', 'apex', 'http://aiboa.org/', 'https://aiboc.org/wp-content/uploads/2026/08/47_2026_UFBU_Letter_to_IBA_Constituents.pdf', 'approved'),
+  ('Indian National Bank Employees Federation', 'INBEF', 'National bank employees'' federation.', 'apex', null, 'https://www.inboc.org/post/inbef-activities-nec-meeting-of-indian-national-bank-employees-federation-inbef-held-on-5th-6th', 'approved'),
+  ('Indian National Bank Officers'' Congress', 'INBOC', 'National bank officers'' organization and banking wing of INTUC.', 'apex', 'https://www.inboc.org/', 'https://aiboc.org/wp-content/uploads/2026/08/47_2026_UFBU_Letter_to_IBA_Constituents.pdf', 'approved')
 on conflict (acronym) do update set
   name = excluded.name,
   description = excluded.description,
@@ -20,6 +17,18 @@ on conflict (acronym) do update set
   homepage_url = excluded.homepage_url,
   source_url = excluded.source_url,
   status = excluded.status;
+
+update public.associations
+set homepage_url = 'https://aiboc.org/', source_url = 'https://aiboc.org/wp-content/uploads/2026/08/47_2026_UFBU_Letter_to_IBA_Constituents.pdf'
+where acronym = 'AIBOC';
+
+update public.associations
+set parent_id = (select id from public.associations where acronym = 'UFBU')
+where acronym in ('AIBOC', 'AIBEA', 'NCBE', 'AIBOA', 'BEFI', 'INBEF', 'INBOC');
+
+update public.associations
+set source_url = 'https://aiboc.org/aiboc-affiliates/'
+where acronym in ('CBOA', 'FBBOA', 'IOBOA', 'AIIBOA', 'AIUBOF', 'AIUCOBOF', 'AIPNBOA', 'AICBOF', 'FBOIOA', 'AISBOF', 'ASCBOK', 'CSBOA', 'SIBOA', 'FBOA', 'KVBOA', 'DBOO', 'LVBOA', 'AIRRBOF');
 
 with aiboc as (select id from public.associations where acronym = 'AIBOC'),
 affiliates(name, acronym, description) as (values

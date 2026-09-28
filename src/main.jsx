@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
-import { ArrowDown, ArrowUpRight, BadgeCheck, Building2, Check, ChevronDown, CircleHelp, ExternalLink, EyeOff, Filter, KeyRound, LogIn, Mail, MessageCircle, Network, Plus, Search, Send, ShieldCheck, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowUpRight, BadgeCheck, Building2, Check, ChevronDown, CircleHelp, ExternalLink, EyeOff, Filter, KeyRound, LoaderCircle, LogIn, Mail, MessageCircle, Network, Plus, Search, Send, ShieldCheck, Trash2, Users, X } from 'lucide-react';
 import './style.css';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -20,6 +20,29 @@ function timeAgo(value) {
   if (days === 0) return 'Today';
   if (days === 1) return 'Yesterday';
   return `${days} days ago`;
+}
+
+function normalizeQuestionText(value) {
+  return (value || '').normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+function questionTitleSimilarity(first, second) {
+  const firstWords = new Set(normalizeQuestionText(first).split(' ').filter(Boolean));
+  const secondWords = new Set(normalizeQuestionText(second).split(' ').filter(Boolean));
+  if (!firstWords.size || !secondWords.size) return 0;
+  const shared = [...firstWords].filter((word) => secondWords.has(word)).length;
+  return shared / new Set([...firstWords, ...secondWords]).size;
+}
+
+function findPossibleDuplicates(title, associationId, questions) {
+  const normalizedTitle = normalizeQuestionText(title);
+  if (!normalizedTitle || !associationId) return [];
+  return questions
+    .filter((question) => question.association_id === associationId)
+    .map((question) => ({ question, similarity: questionTitleSimilarity(title, question.title) }))
+    .filter(({ question, similarity }) => normalizeQuestionText(question.title) === normalizedTitle || (normalizedTitle.length >= 18 && similarity >= 0.72))
+    .sort((first, second) => second.similarity - first.similarity)
+    .slice(0, 3);
 }
 
 function safeHomepageUrl(value) {
@@ -54,6 +77,38 @@ function AssociationTreeNode({ association, childrenByParent }) {
   </li>;
 }
 
+function AssociationDirectoryCard({ association, associations, findings, admin, editingHomepage, homepageDraft, onHomepageDraftChange, onEditHomepage, onSaveHomepage, isRefreshing, reviewingFindingId, onRefresh, onReview }) {
+  const parent = associations.find((item) => item.id === association.parent_id);
+  const homepageUrl = safeHomepageUrl(association.homepage_url);
+  const sourceUrl = safeHomepageUrl(association.source_url);
+  return <article className="directory-card" key={association.id}>
+    <div className="directory-card-top"><span className="association-badge"><Building2 size={17} /></span><span className="level-label">{association.association_type === 'apex' ? 'NATIONAL BODY' : association.association_type === 'bank' ? 'BANK ASSOCIATION' : 'ASSOCIATION'}</span></div>
+    <h2>{association.name}</h2><p className="directory-acronym">{association.acronym}</p><p className="directory-description">{association.description || 'Association information has not been added yet.'}</p>
+    <div className="directory-parent">{association.parent_id ? `Reports to ${parent?.acronym || 'parent association'}` : 'Top-level organization'}</div>
+    {homepageUrl ? <a className="text-action directory-link" href={homepageUrl} target="_blank" rel="noreferrer">Visit homepage <ExternalLink size={14} /></a> : <span className="no-homepage">Homepage not provided</span>}
+    {sourceUrl && <a className="text-action directory-link" href={sourceUrl} target="_blank" rel="noreferrer">Source <ExternalLink size={14} /></a>}
+    {admin && !editingHomepage && <button className="text-action edit-homepage" onClick={() => onEditHomepage(association)}><Plus size={13} />{homepageUrl ? 'Change homepage' : 'Add homepage'}</button>}
+    {admin && editingHomepage && <form className="homepage-edit-form" onSubmit={(event) => onSaveHomepage(event, association)}><label className="field-label">Official HTTPS homepage<input name="homepage_url" type="url" required value={homepageDraft} onChange={(event) => onHomepageDraftChange(event.target.value)} placeholder="https://association.org" /></label><div><button className="button button-dark" type="submit">Save homepage</button><button className="text-action" type="button" onClick={() => onEditHomepage(null)}>Cancel</button></div></form>}
+    <AssociationSiteFindings association={association} findings={findings} admin={admin} isRefreshing={isRefreshing} reviewingFindingId={reviewingFindingId} onRefresh={onRefresh} onReview={onReview} />
+  </article>;
+}
+
+function AssociationSiteFindings({ association, findings, admin, isRefreshing, reviewingFindingId, onRefresh, onReview }) {
+  const associationFindings = findings.filter((finding) => finding.association_id === association.id);
+  return <section className="site-findings">
+    <div className="site-findings-heading"><strong>Website information</strong><span>{associationFindings.filter((finding) => finding.review_status === 'approved').length} verified</span></div>
+    <p className="site-findings-note">Public website excerpts. Names and roles need human verification.</p>
+    {associationFindings.map((finding) => <article className="site-finding" key={finding.id}>
+      <div className="site-finding-title"><a href={safeHomepageUrl(finding.source_url) || '#'} target="_blank" rel="noreferrer">{finding.page_title || finding.source_url}<ExternalLink size={12} /></a><span className={`finding-status ${finding.review_status}`}>{finding.review_status === 'approved' ? 'Verified' : finding.review_status === 'pending' ? 'Review' : 'Hidden'}</span></div>
+      <p>{finding.excerpt}</p>
+      <small>Fetched {new Date(finding.fetched_at).toLocaleDateString()}</small>
+      {admin && finding.review_status === 'pending' && <div className="finding-actions"><button className="text-action" onClick={() => onReview(finding, 'approved')} disabled={Boolean(reviewingFindingId)}><Check size={13} /> {reviewingFindingId === finding.id ? 'Saving...' : 'Approve'}</button><button className="text-action" onClick={() => onReview(finding, 'hidden')} disabled={Boolean(reviewingFindingId)}><X size={13} /> Hide</button></div>}
+    </article>)}
+    {admin && <button className="text-action scan-site-button" onClick={() => onRefresh(association)} disabled={isRefreshing || !association.homepage_url}><ExternalLink size={13} />{isRefreshing ? 'Fetching public pages...' : 'Fetch website information'}</button>}
+    {!associationFindings.length && <p className="site-findings-empty">{association.homepage_url ? 'No reviewed website information yet.' : 'Add the official homepage to enable fetching.'}</p>}
+  </section>;
+}
+
 function App() {
   const [associations, setAssociations] = useState([demoApex, demoAssociation]);
   const [questions, setQuestions] = useState(demoQuestions);
@@ -64,6 +119,15 @@ function App() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('All questions');
   const [showQuestionForm, setShowQuestionForm] = useState(false);
+  const [questionTitleDraft, setQuestionTitleDraft] = useState('');
+  const [questionAssociationDraft, setQuestionAssociationDraft] = useState('');
+  const [isSubmittingQuestion, setIsSubmittingQuestion] = useState(false);
+  const [deletingQuestionId, setDeletingQuestionId] = useState(null);
+  const [siteFindings, setSiteFindings] = useState([]);
+  const [refreshingAssociationId, setRefreshingAssociationId] = useState(null);
+  const [reviewingFindingId, setReviewingFindingId] = useState(null);
+  const [editingHomepageId, setEditingHomepageId] = useState(null);
+  const [homepageDraft, setHomepageDraft] = useState('');
   const [showAssociationForm, setShowAssociationForm] = useState(false);
   const [activeView, setActiveView] = useState('questions');
   const [notice, setNotice] = useState('');
@@ -81,14 +145,17 @@ function App() {
       setLoading(false);
       return;
     }
-    const [associationResult, questionResult] = await Promise.all([
+    const [associationResult, questionResult, findingsResult] = await Promise.all([
       supabase.from('associations').select('*').eq('status', 'approved').order('name'),
       supabase.from('questions').select('*, associations(name, acronym), answers(id, body, created_at)').eq('status', 'published').order('created_at', { ascending: false }),
+      supabase.from('association_site_findings').select('*').order('fetched_at', { ascending: false }),
     ]);
     if (associationResult.error) setNotice(associationResult.error.message);
     else setAssociations(associationResult.data || []);
     if (questionResult.error) setNotice(questionResult.error.message);
     else setQuestions(questionResult.data || []);
+    if (findingsResult.error) setNotice(findingsResult.error.message);
+    else setSiteFindings(findingsResult.data || []);
     if (session?.user) {
       const { data: requestsData } = await supabase.from('association_requests').select('*').eq('status', 'pending').order('created_at');
       setRequests(requestsData || []);
@@ -143,6 +210,10 @@ function App() {
       return matchesSearch && matchesFilter;
     });
   }, [questions, search, filter]);
+  const possibleDuplicates = useMemo(
+    () => findPossibleDuplicates(questionTitleDraft, questionAssociationDraft, questions),
+    [questionTitleDraft, questionAssociationDraft, questions],
+  );
 
   const childrenByParent = useMemo(() => {
     const children = new Map();
@@ -238,27 +309,62 @@ function App() {
 
   async function submitQuestion(event) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const anonymous = data.get('anonymous') === 'on';
-    const question = {
-      title: data.get('title').trim(), body: data.get('body').trim(), association_id: data.get('association_id'),
-      department: data.get('department').trim() || null, cluster: data.get('cluster').trim() || null,
-      region: data.get('region').trim() || null, is_anonymous: anonymous, user_id: anonymous ? null : session?.user?.id || null,
-    };
-    if (!supabase) {
-      const demoQuestion = { ...question, id: crypto.randomUUID(), created_at: new Date().toISOString(), associations: associations.find((entry) => entry.id === question.association_id) || demoAssociation, answers: [] };
-      const existing = JSON.parse(localStorage.getItem('union-voice-demo-questions') || '[]');
-      localStorage.setItem('union-voice-demo-questions', JSON.stringify([demoQuestion, ...existing]));
-      setQuestions((current) => [demoQuestion, ...current]);
-      setNotice('Your question is posted in this browser demo. Configure Supabase to publish it for everyone.');
-    } else {
-      const { error } = await supabase.from('questions').insert(question);
-      if (error) { setNotice(error.message); return; }
-      setNotice('Your question has been posted.');
-      await refresh();
+    if (isSubmittingQuestion) return;
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const title = data.get('title').trim();
+    const body = data.get('body').trim();
+    const associationId = data.get('association_id');
+    const normalizedTitle = normalizeQuestionText(title);
+    const normalizedBody = normalizeQuestionText(body);
+    const exactDuplicate = questions.find((existing) => existing.association_id === associationId
+      && (normalizeQuestionText(existing.title) === normalizedTitle || normalizeQuestionText(existing.body) === normalizedBody));
+    if (exactDuplicate) {
+      setNotice(`This appears to match an existing question: “${exactDuplicate.title}”. Please review it before posting.`);
+      return;
     }
-    event.currentTarget.reset();
-    setShowQuestionForm(false);
+    setIsSubmittingQuestion(true);
+    try {
+      const anonymous = data.get('anonymous') === 'on';
+      const question = {
+        title, body, association_id: associationId,
+        department: data.get('department').trim() || null, cluster: data.get('cluster').trim() || null,
+        region: data.get('region').trim() || null, is_anonymous: anonymous, user_id: anonymous ? null : session?.user?.id || null,
+      };
+      if (!supabase) {
+        const demoQuestion = { ...question, id: crypto.randomUUID(), created_at: new Date().toISOString(), associations: associations.find((entry) => entry.id === associationId) || demoAssociation, answers: [] };
+        const existing = JSON.parse(localStorage.getItem('union-voice-demo-questions') || '[]');
+        localStorage.setItem('union-voice-demo-questions', JSON.stringify([demoQuestion, ...existing]));
+        setQuestions((current) => [demoQuestion, ...current]);
+        setNotice('Your question is posted in this browser demo. Configure Supabase to publish it for everyone.');
+      } else {
+        const { error } = await supabase.from('questions').insert(question);
+        if (error) throw error;
+        setNotice('Your question has been posted.');
+        await refresh();
+      }
+      form.reset();
+      setQuestionTitleDraft('');
+      setQuestionAssociationDraft('');
+      setShowQuestionForm(false);
+    } catch (error) {
+      setNotice(error.message || 'Could not post your question. Please try again.');
+    } finally {
+      setIsSubmittingQuestion(false);
+    }
+  }
+
+  async function deleteQuestion(question) {
+    if (!admin || !supabase || deletingQuestionId) return;
+    if (!window.confirm(`Permanently delete “${question.title}”? This also removes its replies.`)) return;
+    setDeletingQuestionId(question.id);
+    const { error } = await supabase.from('questions').delete().eq('id', question.id);
+    if (error) setNotice(error.message);
+    else {
+      setQuestions((current) => current.filter((item) => item.id !== question.id));
+      setNotice('Question and its replies were deleted.');
+    }
+    setDeletingQuestionId(null);
   }
 
   async function submitAssociationRequest(event) {
@@ -315,6 +421,59 @@ function App() {
     else { setNotice(`${request.acronym} approved and added to the portal.`); await refresh(); }
   }
 
+  function editAssociationHomepage(association) {
+    setEditingHomepageId(association?.id || null);
+    setHomepageDraft(association?.homepage_url || '');
+  }
+
+  async function saveAssociationHomepage(event, association) {
+    event.preventDefault();
+    const homepageUrl = safeHomepageUrl(homepageDraft.trim());
+    if (!homepageUrl || !homepageUrl.startsWith('https://')) {
+      setNotice('Enter an official homepage beginning with https://.');
+      return;
+    }
+    const { error } = await supabase.from('associations').update({ homepage_url: homepageUrl }).eq('id', association.id);
+    if (error) { setNotice(error.message); return; }
+    setAssociations((current) => current.map((item) => item.id === association.id ? { ...item, homepage_url: homepageUrl } : item));
+    setEditingHomepageId(null);
+    setNotice(`${association.acronym} homepage saved.`);
+  }
+
+  async function fetchAssociationWebsite(association) {
+    if (!admin || !supabase || refreshingAssociationId) return;
+    setRefreshingAssociationId(association.id);
+    setNotice('');
+    try {
+      const { data, error } = await supabase.functions.invoke('fetch-association-site', { body: { association_id: association.id } });
+      if (error) {
+        let message = error.message;
+        try { message = (await error.context.json()).error || message; } catch {}
+        throw new Error(message);
+      }
+      const { data: findings, error: findingsError } = await supabase.from('association_site_findings').select('*').order('fetched_at', { ascending: false });
+      if (findingsError) throw findingsError;
+      setSiteFindings(findings || []);
+      setNotice(`Fetched ${data.findings?.length || 0} public pages for ${association.acronym}. Review each excerpt before approving it.`);
+    } catch (error) {
+      setNotice(error.message || 'Could not fetch the association website.');
+    } finally {
+      setRefreshingAssociationId(null);
+    }
+  }
+
+  async function reviewAssociationFinding(finding, reviewStatus) {
+    if (!admin || !supabase || reviewingFindingId) return;
+    setReviewingFindingId(finding.id);
+    const { error } = await supabase.from('association_site_findings').update({ review_status: reviewStatus }).eq('id', finding.id);
+    if (error) setNotice(error.message);
+    else {
+      setSiteFindings((current) => current.map((item) => item.id === finding.id ? { ...item, review_status: reviewStatus } : item));
+      setNotice(reviewStatus === 'approved' ? 'Source excerpt approved and visible in the directory.' : 'Source excerpt hidden from the public directory.');
+    }
+    setReviewingFindingId(null);
+  }
+
   const admin = profile?.role === 'admin';
   const modeLabel = supabase ? 'Supabase connected' : 'Preview mode';
   return (
@@ -364,12 +523,13 @@ function App() {
           <div className="feed-column">
             {showQuestionForm && <form className="compose-panel" onSubmit={submitQuestion}>
               <div className="form-heading"><div><span className="section-kicker">YOUR QUESTION</span><h2>Start a conversation</h2></div><button type="button" className="icon-button" aria-label="Close form" onClick={() => setShowQuestionForm(false)}><X size={18} /></button></div>
-              <label className="field-label">Send to association<select name="association_id" required defaultValue=""><option value="" disabled>Select an association</option>{associations.filter((association) => association.association_type !== 'apex').map((association) => <option key={association.id} value={association.id}>{association.acronym} · {association.name}</option>)}</select></label>
-              <label className="field-label">Question title<input name="title" required maxLength="160" placeholder="What would you like clarity on?" /></label>
+              <label className="field-label">Send to association<select name="association_id" required value={questionAssociationDraft} onChange={(event) => setQuestionAssociationDraft(event.target.value)}><option value="" disabled>Select an association</option>{associations.filter((association) => association.association_type !== 'apex').map((association) => <option key={association.id} value={association.id}>{association.acronym} · {association.name}</option>)}</select></label>
+              <label className="field-label">Question title<input name="title" value={questionTitleDraft} onChange={(event) => setQuestionTitleDraft(event.target.value)} required maxLength="160" placeholder="What would you like clarity on?" /></label>
+              {possibleDuplicates.length > 0 && <div className="duplicate-warning" role="status"><strong>Check for a similar question before posting</strong>{possibleDuplicates.map(({ question }) => <a key={question.id} href={`#question-${question.id}`}>{question.title} <ArrowUpRight size={13} /></a>)}</div>}
               <label className="field-label">Details<textarea name="body" required rows="4" placeholder="Add context that will help your representative respond..." /></label>
               <div className="tag-fields"><label className="field-label">Department<input name="department" placeholder="e.g. Operations" /></label><label className="field-label">Cluster<input name="cluster" placeholder="e.g. Chennai" /></label><label className="field-label">Region<input name="region" placeholder="e.g. South" /></label></div>
               <label className="anonymous-toggle"><input type="checkbox" name="anonymous" /><span className="toggle-track"><i /></span><span><strong>Post anonymously</strong><small>Your identity will not be attached to this question.</small></span><EyeOff size={18} /></label>
-              <div className="form-footer"><span><ShieldCheck size={15} /> Please do not include account or customer information.</span><button className="button button-dark" type="submit"><Send size={15} /> Publish question</button></div>
+              <div className="form-footer"><span><ShieldCheck size={15} /> Please do not include account or customer information.</span><button className="button button-dark" type="submit" disabled={isSubmittingQuestion}>{isSubmittingQuestion ? <><LoaderCircle className="button-spinner" size={15} /> Posting...</> : <><Send size={15} /> Publish question</>}</button></div>
             </form>}
 
             <div className="feed-heading">
@@ -383,13 +543,13 @@ function App() {
             <div className="question-list">
               {loading ? <div className="empty-state"><span className="loader" /><p>Loading the conversation...</p></div> : visibleQuestions.length ? visibleQuestions.map((question) => {
                 const isRepresentative = admin || memberIds.includes(question.association_id);
-                return <article className="question-item" key={question.id}>
+                return <article className="question-item" id={`question-${question.id}`} key={question.id}>
                   <div className="question-meta"><span className="association-label"><span className="association-symbol">{(question.associations?.acronym || 'U').slice(0, 1)}</span>{question.associations?.acronym || 'Association'}</span><span className="meta-separator">·</span><span>{timeAgo(question.created_at)}</span>{question.is_anonymous && <span className="anonymous-label"><EyeOff size={12} /> Anonymous</span>}</div>
                   <h3>{question.title}</h3><p className="question-body">{question.body}</p>
                   <div className="question-tags">{[question.department, question.cluster, question.region].filter(Boolean).map((tag, index) => <span key={`${tag}-${index}`} className={`tag tag-${index}`}>{tag}</span>)}</div>
                   {(question.answers || []).map((answer) => <div className="answer-block" key={answer.id}><div className="answer-heading"><span className="answer-check"><Check size={12} /></span><strong>Representative reply</strong><span>{timeAgo(answer.created_at)}</span></div><p>{answer.body}</p></div>)}
                   {isRepresentative && supabase && <details className="reply-details"><summary><MessageCircle size={14} /> Reply as representative</summary><form onSubmit={(event) => submitAnswer(event, question)}><textarea name="answer" required rows="3" placeholder="Write a clear, helpful response..." /><button className="button button-dark" type="submit"><Send size={14} /> Publish reply</button></form></details>}
-                  <div className="question-bottom"><span><MessageCircle size={14} /> {(question.answers || []).length} {(question.answers || []).length === 1 ? 'reply' : 'replies'}</span><button className="text-action" onClick={() => setNotice(session?.user ? 'Replies are added by representatives assigned to this association.' : 'Sign in with your work account to participate as a representative.')}><ArrowUpRight size={14} /> Follow conversation</button></div>
+                  <div className="question-bottom"><span><MessageCircle size={14} /> {(question.answers || []).length} {(question.answers || []).length === 1 ? 'reply' : 'replies'}</span><div className="question-actions">{admin && <button className="text-action delete-question" onClick={() => deleteQuestion(question)} disabled={Boolean(deletingQuestionId)}><Trash2 size={14} /> {deletingQuestionId === question.id ? 'Deleting...' : 'Delete question'}</button>}<button className="text-action" onClick={() => setNotice(session?.user ? 'Replies are added by representatives assigned to this association.' : 'Sign in with your work account to participate as a representative.')}><ArrowUpRight size={14} /> Follow conversation</button></div></div>
                 </article>;
               }) : <div className="empty-state"><CircleHelp size={26} /><h3>No questions found</h3><p>Try a different search, or be the first to ask.</p><button className="text-action" onClick={() => setShowQuestionForm(true)}><Plus size={15} /> Ask a question</button></div>}
             </div>
@@ -408,12 +568,12 @@ function App() {
             <div className="privacy-card"><ShieldCheck size={19} /><div><strong>Built around trust</strong><p>Never share customer data, account numbers, or confidential bank information.</p></div></div>
           </aside>
         </section> : activeView === 'associations' ? <section className="directory-page">
-          <div className="page-heading"><div><span className="section-kicker">THE NETWORK</span><h1>Associations</h1><p>Browse affiliated bodies and visit their official homepages.</p></div><button className="button button-dark" onClick={() => setShowAssociationForm((value) => !value)}><Plus size={16} /> {admin ? 'Add association' : 'Request association'}</button></div>
+          <div className="page-heading"><div><span className="section-kicker">THE NETWORK</span><h1>Associations</h1><p>Browse national bank unions and officers’ associations.</p><p className="directory-scope">Initial sourced coverage: AIBOC’s published affiliate roster, plus AIBEA and BEFI. This is not an exhaustive register of every bank, union, or independent association.</p></div><button className="button button-dark" onClick={() => setShowAssociationForm((value) => !value)}><Plus size={16} /> {admin ? 'Add association' : 'Request association'}</button></div>
           {showAssociationForm && <div className="directory-form-wrap"><div className="form-heading"><div><span className="section-kicker">{admin ? 'DIRECTORY ADMIN' : 'PROPOSE A BODY'}</span><h2>{admin ? 'Add an association' : 'Request an association'}</h2></div><button type="button" className="icon-button" aria-label="Close association form" onClick={() => setShowAssociationForm(false)}><X size={18} /></button></div><AssociationRequestForm associations={associations} admin={admin} onSubmit={submitAssociationRequest} /></div>}
-          <div className="directory-grid">{associations.map((association) => <article className="directory-card" key={association.id}><div className="directory-card-top"><span className="association-badge"><Building2 size={17} /></span><span className="level-label">{association.association_type === 'apex' ? 'APEX BODY' : association.association_type === 'bank' ? 'BANK ASSOCIATION' : 'ASSOCIATION'}</span></div><h2>{association.name}</h2><p className="directory-acronym">{association.acronym}</p><p className="directory-description">{association.description || 'Association information has not been added yet.'}</p><div className="directory-parent">{association.parent_id ? `Reports to ${associations.find((item) => item.id === association.parent_id)?.acronym || 'parent association'}` : 'Top-level organization'}</div>{safeHomepageUrl(association.homepage_url) ? <a className="text-action directory-link" href={safeHomepageUrl(association.homepage_url)} target="_blank" rel="noreferrer">Visit homepage <ExternalLink size={14} /></a> : <span className="no-homepage">Homepage not provided</span>}</article>)}</div>
+          <div className="directory-grid">{associations.map((association) => <AssociationDirectoryCard key={association.id} association={association} associations={associations} findings={siteFindings} admin={admin} editingHomepage={editingHomepageId === association.id} homepageDraft={homepageDraft} onHomepageDraftChange={setHomepageDraft} onEditHomepage={editAssociationHomepage} onSaveHomepage={saveAssociationHomepage} isRefreshing={refreshingAssociationId === association.id} reviewingFindingId={reviewingFindingId} onRefresh={fetchAssociationWebsite} onReview={reviewAssociationFinding} />)}</div>
           {admin && <section className="side-section admin-section directory-review"><div className="side-title"><span className="section-kicker">ADMIN REVIEW</span><span className="pending-count">{requests.length}</span></div><p className="side-description">Association requests awaiting approval.</p>{requests.length ? requests.map((request) => <div className="request-card" key={request.id}><strong>{request.acronym} · {request.name}</strong><p>{request.description || 'No description provided.'}</p><p>{request.parent_id ? `Parent: ${associations.find((item) => item.id === request.parent_id)?.acronym || 'selected association'}` : 'Top-level organization'}</p><button className="text-action" onClick={() => approveRequest(request)}><Check size={14} /> Approve association</button></div>) : <p className="no-requests">No requests waiting.</p>}</section>}
         </section> : <section className="directory-page hierarchy-page">
-          <div className="page-heading"><div><span className="section-kicker">HOW WE CONNECT</span><h1>Association structure</h1><p>Explore the apex body and the bank associations connected to it.</p></div><Network size={27} /></div>
+          <div className="page-heading"><div><span className="section-kicker">HOW WE CONNECT</span><h1>Association structure</h1><p>Explore national bodies and the bank associations connected to them.</p></div><Network size={27} /></div>
           <div className="hierarchy-panel"><div className="hierarchy-caption"><Network size={16} /><span>ORGANIZATIONAL HIERARCHY</span></div><ul className="association-tree">{roots.map((association) => <AssociationTreeNode key={association.id} association={association} childrenByParent={childrenByParent} />)}</ul></div>
           <button className="text-action hierarchy-action" onClick={() => { setActiveView('associations'); setShowAssociationForm(true); }}><Plus size={15} /> Request a new association or add a child body</button>
         </section>}

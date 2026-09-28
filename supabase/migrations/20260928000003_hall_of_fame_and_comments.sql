@@ -33,24 +33,30 @@ create index if not exists comments_achievement_idx on public.comments (achievem
 alter table public.achievements enable row level security;
 alter table public.comments enable row level security;
 
+drop policy if exists "Published achievements are public" on public.achievements;
 create policy "Published achievements are public" on public.achievements
 for select using (status = 'published' or public.is_admin());
+drop policy if exists "Signed-in users post achievements" on public.achievements;
 create policy "Signed-in users post achievements" on public.achievements
 for insert to authenticated with check (
   author_id = (select auth.uid())
   and exists (select 1 from public.associations a where a.id = association_id and a.status = 'approved')
 );
+drop policy if exists "Admins moderate achievements" on public.achievements;
 create policy "Admins moderate achievements" on public.achievements
 for update to authenticated using (public.is_admin()) with check (public.is_admin());
+drop policy if exists "Admins delete achievements" on public.achievements;
 create policy "Admins delete achievements" on public.achievements
 for delete to authenticated using (public.is_admin());
 
+drop policy if exists "Comments on visible content are public" on public.comments;
 create policy "Comments on visible content are public" on public.comments
 for select using (
   (question_id is not null and exists (select 1 from public.questions q where q.id = question_id and q.status = 'published'))
   or (achievement_id is not null and exists (select 1 from public.achievements a where a.id = achievement_id and a.status = 'published'))
   or public.is_admin()
 );
+drop policy if exists "Comments require a published target" on public.comments;
 create policy "Comments require a published target" on public.comments
 for insert with check (
   (user_id is null or user_id = (select auth.uid()))
@@ -59,5 +65,6 @@ for insert with check (
     or (achievement_id is not null and exists (select 1 from public.achievements a where a.id = achievement_id and a.status = 'published'))
   )
 );
+drop policy if exists "Admins delete comments" on public.comments;
 create policy "Admins delete comments" on public.comments
 for delete to authenticated using (public.is_admin());
